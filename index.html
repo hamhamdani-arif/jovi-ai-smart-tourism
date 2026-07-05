@@ -279,13 +279,23 @@
     // =========================================================
     // CONFIG — adjust to your environment
     // =========================================================
-    // Derived from whatever host the page was actually loaded through, so the
-    // same file works whether opened via "localhost" (on this Mac) or via the
-    // LAN IP (e.g. from a phone on the same network) - no hardcoded address.
+    // Local dev (this Mac, or a phone on the same LAN) talks to the locally
+    // hosted backend/Dify at whatever host the page itself was loaded through.
+    // Anywhere else (e.g. the GitHub Pages deployment) uses the production
+    // backend (Render) and Dify Cloud chatbot instead.
+    const isLocalHost = (h) =>
+      h === "localhost" || h === "127.0.0.1" || /^192\.168\.|^172\.(1[6-9]|2\d|3[01])\.|^10\./.test(h);
+
     const CURRENT_HOST = window.location.hostname;
-    const BACKEND_URL = `http://${CURRENT_HOST}:8000`; // change this when deploying to production
-    const DIFY_CHATBOT_ID = "TvIILpkECeqM94Nz";
-    document.getElementById("jovi-chat-iframe").src = `http://${CURRENT_HOST}/chatbot/${DIFY_CHATBOT_ID}`;
+    const LOCAL = isLocalHost(CURRENT_HOST);
+
+    const BACKEND_URL = LOCAL ? `http://${CURRENT_HOST}:8000` : "https://jovi-backend.onrender.com";
+
+    const LOCAL_DIFY_CHATBOT_ID = "TvIILpkECeqM94Nz";
+    const DIFY_CLOUD_CHAT_URL = ""; // TODO: fill in once the chatflow is imported into Dify Cloud
+    document.getElementById("jovi-chat-iframe").src = LOCAL
+      ? `http://${CURRENT_HOST}/chatbot/${LOCAL_DIFY_CHATBOT_ID}`
+      : DIFY_CLOUD_CHAT_URL;
 
     const POLL_INTERVAL_MS = 3000;
     const LATEST_SIM_POLL_INTERVAL_MS = 4000; // how often to check for a new simulation_id from the backend
