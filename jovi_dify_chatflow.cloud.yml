@@ -1,0 +1,486 @@
+app:
+  description: 'Jovi - AI travel planning assistant. This chatflow generates an itinerary via LLM (DeepSeek, configured in the Dify workspace), then sends it to a FastAPI backend (geocoding + OSRM routing + Kinematic Bicycle Model) for route simulation.'
+  icon: 🚗
+  icon_background: '#FFEAD5'
+  mode: advanced-chat
+  name: Jovi - AI Smart Tourism
+  use_icon_as_answer_icon: false
+dependencies: []
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload: {}
+    opening_statement: 'Hi! I''m Jovi 👋 Where would you like to travel? Tell me your destination, how many days, and your preferences (food, history, nature, etc.) and I''ll put together an itinerary for you.'
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - id: start-llm
+      source: start_node
+      sourceHandle: source
+      target: llm_node
+      targetHandle: target
+    - id: llm-code
+      source: llm_node
+      sourceHandle: source
+      target: code_node
+      targetHandle: target
+    - id: code-if
+      source: code_node
+      sourceHandle: source
+      target: if_node
+      targetHandle: target
+    - id: if-true-images
+      source: if_node
+      sourceHandle: 'true'
+      target: image_iteration_node
+      targetHandle: target
+    - id: iteration-start-fetch
+      source: image_iteration_nodestart
+      sourceHandle: source
+      target: fetch_image_node
+      targetHandle: target
+    - id: images-http
+      source: image_iteration_node
+      sourceHandle: source
+      target: images_markdown_node
+      targetHandle: target
+    - id: markdown-http
+      source: images_markdown_node
+      sourceHandle: source
+      target: http_node
+      targetHandle: target
+    - id: if-false-answer
+      source: if_node
+      sourceHandle: 'false'
+      target: answer_false_node
+      targetHandle: target
+    - id: http-simid
+      source: http_node
+      sourceHandle: source
+      target: code_simid_node
+      targetHandle: target
+    - id: simid-answer
+      source: code_simid_node
+      sourceHandle: source
+      target: answer_true_node
+      targetHandle: target
+    nodes:
+    - data:
+        desc: ''
+        title: Start
+        type: start
+        variables: []
+      id: start_node
+      position:
+        x: 80
+        y: 320
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        desc: 'Generates the itinerary based on the conversation with the user. Select the DeepSeek model here after importing (the DeepSeek API key is configured in the Dify workspace, not in this flow).'
+        memory:
+          query_prompt_template: '{{#sys.query#}}
+
+
+            {{#sys.files#}}'
+          window:
+            enabled: true
+            size: 10
+        model:
+          completion_params:
+            temperature: 0.7
+          mode: chat
+          name: ''
+          provider: ''
+        prompt_template:
+        - role: system
+          text: |
+            You are Jovi, a friendly and helpful AI travel itinerary planning assistant. Always reply in English, regardless of what language the user writes in.
+
+            Your tasks:
+            1. Chat with the user to understand their travel destination, number of days, and preferences.
+            2. If there isn't enough information yet (destination/number of days still unclear), do NOT build an itinerary yet - ask a friendly follow-up question instead.
+            3. Once you have enough information, put together a short day-by-day itinerary in plain, easy-to-understand English to show the user.
+            4. At the end of your reply, ALWAYS include a JSON block (wrapped in ```json ... ```) containing the itinerary's list of locations, in EXACTLY this format:
+
+            ```json
+            {"locations": [{"day": 1, "name": "Location Name, City", "notes": "optional"}, {"day": 1, "name": "Another location, City", "notes": ""}]}
+            ```
+
+            Important rules:
+            - "name" MUST include the city/region so it can be geocoded, e.g. "Malioboro, Yogyakarta" not just "Malioboro".
+            - "name" MUST use the location's real name in its local language/English, EXACTLY as it appears on Google Maps/OpenStreetMap - do NOT translate it into another language. Correct: "Daming Lake, Jinan", "Sun Yat-sen Mausoleum, Nanjing". Wrong: "Lake Daming, Jinan" translated into another language. This matters because "name" is used to automatically look up the location's GPS coordinates - a translated name won't be found.
+            - If you're not ready to build the itinerary yet (rule 2), do NOT include the JSON block at all.
+            - Never explain the JSON block to the user - it's for internal system use only (the route simulation backend).
+        selected: false
+        title: 'Jovi - Generate Itinerary'
+        type: llm
+        variables: []
+        vision:
+          enabled: false
+      id: llm_node
+      position:
+        x: 380
+        y: 320
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        code: |
+          import json
+          import re
+
+
+          def main(llm_output: str) -> dict:
+              match = re.search(r"```json\s*(.*?)\s*```", llm_output, re.DOTALL)
+              json_str = match.group(1) if match else ""
+
+              try:
+                  parsed = json.loads(json_str) if json_str else {}
+              except Exception:
+                  parsed = {}
+
+              locations = parsed.get("locations", []) if isinstance(parsed, dict) else []
+
+              payload = {
+                  "conversation_id": None,
+                  "locations": locations,
+              }
+
+              clean_text = re.sub(r"```json\s*.*?\s*```", "", llm_output, flags=re.DOTALL).strip()
+
+              return {
+                  "itinerary_json": json.dumps(payload, ensure_ascii=False),
+                  "clean_text": clean_text if clean_text else llm_output,
+                  "locations_count": len(locations),
+                  "locations": locations,
+              }
+        code_language: python3
+        desc: 'Extracts the itinerary JSON block from the LLM reply, separating it from the conversational text shown to the user'
+        outputs:
+          itinerary_json:
+            children: null
+            type: string
+          clean_text:
+            children: null
+            type: string
+          locations_count:
+            children: null
+            type: number
+          locations:
+            children: null
+            type: array[object]
+        selected: false
+        title: 'Extract Itinerary JSON'
+        type: code
+        variables:
+        - value_selector:
+          - llm_node
+          - text
+          value_type: string
+          variable: llm_output
+      id: code_node
+      position:
+        x: 680
+        y: 320
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        cases:
+        - case_id: 'true'
+          id: 'true'
+          logical_operator: and
+          conditions:
+          - id: itinerary-ready-cond
+            varType: number
+            variable_selector:
+            - code_node
+            - locations_count
+            comparison_operator: '≥'
+            value: '1'
+        desc: 'Checks whether the LLM has produced a complete itinerary (locations_count >= 1). If not, skip sending it to the backend.'
+        selected: false
+        title: 'Is Itinerary Ready?'
+        type: if-else
+      id: if_node
+      position:
+        x: 980
+        y: 320
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        desc: 'For each location in the itinerary, fetches a thumbnail image from Wikipedia (free, no API key needed).'
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        is_parallel: true
+        iterator_input_type: array[object]
+        iterator_selector:
+        - code_node
+        - locations
+        output_selector:
+        - fetch_image_node
+        - result
+        output_type: array[object]
+        parallel_nums: 5
+        selected: false
+        start_node_id: image_iteration_nodestart
+        title: 'Fetch Location Images'
+        type: iteration
+      height: 200
+      id: image_iteration_node
+      position:
+        x: 1280
+        y: 280
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 440
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: image_iteration_nodestart
+      parentId: image_iteration_node
+      position:
+        x: 24
+        y: 68
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+    - data:
+        code: |
+          import requests
+
+
+          def main(item: dict) -> dict:
+              name = item.get("name", "")
+              day = item.get("day", 0)
+              # cari pakai nama landmark saja (sebelum koma pertama) supaya lebih akurat
+              search_term = name.split(",")[0].strip()
+
+              image_url = ""
+              try:
+                  resp = requests.get(
+                      "https://en.wikipedia.org/w/api.php",
+                      params={
+                          "action": "query",
+                          "format": "json",
+                          "prop": "pageimages",
+                          "piprop": "thumbnail",
+                          "pithumbsize": 400,
+                          "generator": "search",
+                          "gsrsearch": search_term,
+                          "gsrlimit": 1,
+                      },
+                      headers={"User-Agent": "jovi-smart-tourism"},
+                      timeout=8,
+                  )
+                  data = resp.json()
+                  pages = data.get("query", {}).get("pages", {})
+                  for page in pages.values():
+                      thumb = page.get("thumbnail", {})
+                      if thumb.get("source"):
+                          image_url = thumb["source"]
+                          break
+              except Exception:
+                  image_url = ""
+
+              return {"result": {"day": day, "name": name, "image_url": image_url}}
+        code_language: python3
+        desc: 'Looks up a Wikipedia thumbnail for one location (runs once per item in the iteration).'
+        isInIteration: true
+        iteration_id: image_iteration_node
+        outputs:
+          result:
+            children: null
+            type: object
+        selected: false
+        title: 'Fetch Image (per location)'
+        type: code
+        variables:
+        - value_selector:
+          - image_iteration_node
+          - item
+          value_type: object
+          variable: item
+      height: 54
+      id: fetch_image_node
+      parentId: image_iteration_node
+      position:
+        x: 160
+        y: 68
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 244
+      zIndex: 1002
+    - data:
+        code: |
+          def main(images: list) -> dict:
+              by_day = {}
+              for img in images or []:
+                  if not img or not img.get("image_url"):
+                      continue
+                  by_day.setdefault(img["day"], []).append(img)
+
+              if not by_day:
+                  return {"images_markdown": ""}
+
+              parts = []
+              for day in sorted(by_day.keys()):
+                  parts.append(f"**Day {day} preview:**")
+                  for img in by_day[day]:
+                      parts.append(f"![{img['name']}]({img['image_url']})")
+                  parts.append("")
+
+              return {"images_markdown": "\n".join(parts).strip()}
+        code_language: python3
+        desc: 'Groups the fetched images by day and builds a Markdown image gallery for the chat answer.'
+        outputs:
+          images_markdown:
+            children: null
+            type: string
+        selected: false
+        title: 'Build Image Gallery'
+        type: code
+        variables:
+        - value_selector:
+          - image_iteration_node
+          - output
+          value_type: array[object]
+          variable: images
+      id: images_markdown_node
+      position:
+        x: 1780
+        y: 320
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        desc: 'Sends the LLM-generated itinerary to the FastAPI backend (main.py) for processing: geocoding, OSRM routing, and the Kinematic Bicycle Model.'
+        title: 'Send to Backend'
+        type: http-request
+        variables: []
+        method: post
+        url: 'https://jovi-backend.onrender.com/webhook/itinerary'
+        authorization:
+          type: no-auth
+          config: null
+        headers: 'Content-Type:application/json'
+        params: ''
+        body:
+          type: json
+          data: '{{#code_node.itinerary_json#}}'
+        ssl_verify: true
+        timeout:
+          connect: 10
+          read: 30
+          write: 30
+        retry_config:
+          retry_enabled: true
+          max_retries: 3
+          retry_interval: 100
+      id: http_node
+      position:
+        x: 2080
+        y: 220
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        code: |
+          import json
+
+
+          def main(response_body: str) -> dict:
+              try:
+                  data = json.loads(response_body)
+              except Exception:
+                  data = {}
+              return {"simulation_id": data.get("simulation_id", "")}
+        code_language: python3
+        desc: 'Extracts simulation_id from the backend response so it can be shown to the user cleanly'
+        outputs:
+          simulation_id:
+            children: null
+            type: string
+        selected: false
+        title: 'Extract Simulation ID'
+        type: code
+        variables:
+        - value_selector:
+          - http_node
+          - body
+          value_type: string
+          variable: response_body
+      id: code_simid_node
+      position:
+        x: 2380
+        y: 220
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        answer: |-
+          {{#code_node.clean_text#}}
+
+          {{#images_markdown_node.images_markdown#}}
+
+          ---
+          ✅ Your itinerary has been sent to the route simulation system. Check the map panel on the right to see it!
+        desc: ''
+        title: 'Answer (Itinerary Sent)'
+        type: answer
+        variables: []
+      id: answer_true_node
+      position:
+        x: 2680
+        y: 220
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    - data:
+        answer: '{{#code_node.clean_text#}}'
+        desc: ''
+        title: 'Answer (Not Ready Yet)'
+        type: answer
+        variables: []
+      id: answer_false_node
+      position:
+        x: 1280
+        y: 460
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+    viewport:
+      x: 0
+      y: 0
+      zoom: 0.6
