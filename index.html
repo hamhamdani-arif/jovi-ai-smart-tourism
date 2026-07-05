@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jovi — AI Smart Tourism</title>
+<link rel="icon" type="image/png" sizes="16x16" href="web_icons/favicon-16x16.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="web_icons/favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="48x48" href="web_icons/favicon-48x48.png" />
+<link rel="apple-touch-icon" href="web_icons/apple-touch-icon.png" />
+<link rel="manifest" href="web_icons/site.webmanifest" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --bg: #0f1410;
+    --panel: #171d18;
+    --accent: #ff8a3d;
+    --accent-soft: #ffb877;
+    --text: #eef0ea;
+    --text-dim: #9aa39a;
+    --border: #2a332b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header .logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  header .logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    font-weight: 600;
+  }
+
+  header span.tag {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+
+  main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  .panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .panel-chat {
+    border-right: 1px solid var(--border);
+  }
+
+  .panel-header {
+    padding: 12px 20px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-body {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+  }
+
+  /* --- Chat panel: embed Dify --- */
+  #jovi-chat-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+  }
+
+  /* --- Simulation panel: Leaflet map --- */
+  #map {
+    width: 100%;
+    height: 100%;
+    background: var(--panel);
+  }
+
+  /* Empty state: covers the default map until the first simulation is ready */
+  .sim-empty-state {
+    position: absolute;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    padding: 32px;
+    background: var(--panel);
+  }
+
+  .sim-empty-state.hidden { display: none; }
+
+  .sim-empty-icon {
+    font-size: 40px;
+    margin-bottom: 4px;
+    opacity: 0.9;
+  }
+
+  .sim-empty-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .sim-empty-text {
+    font-size: 13px;
+    color: var(--text-dim);
+    max-width: 280px;
+    line-height: 1.5;
+  }
+
+  .sim-vehicle-icon {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+  }
+
+  .sim-status {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 1000;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 7px 14px 7px 11px;
+    border-radius: 999px;
+    background: rgba(23, 29, 24, 0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    color: var(--text-dim);
+    transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  }
+
+  .sim-status::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  .sim-status.processing {
+    color: var(--accent-soft);
+    background: rgba(255, 138, 61, 0.14);
+    border-color: rgba(255, 138, 61, 0.3);
+  }
+  .sim-status.processing::before {
+    animation: sim-pulse-dot 1.1s ease-in-out infinite;
+  }
+
+  .sim-status.done {
+    color: #7fd18a;
+    background: rgba(127, 209, 138, 0.14);
+    border-color: rgba(127, 209, 138, 0.3);
+  }
+  .sim-status.done::before {
+    content: "\2713";
+    width: auto;
+    height: auto;
+    background: none;
+    font-size: 11px;
+    line-height: 1;
+    animation: sim-pop-in 0.35s ease;
+  }
+
+  .sim-status.error {
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.14);
+    border-color: rgba(255, 107, 107, 0.3);
+  }
+  .sim-status.error::before {
+    content: "!";
+    width: auto;
+    height: auto;
+    background: none;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  @keyframes sim-pulse-dot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.45; }
+  }
+
+  @keyframes sim-pop-in {
+    0% { transform: scale(0); }
+    60% { transform: scale(1.35); }
+    100% { transform: scale(1); }
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="logo"><img src="web_icons/map_marker/marker_64.png" alt="Jovi logo" /></div>
+    <h1>Jovi — AI Smart Tourism</h1>
+    <span class="tag">SIPIVT Final Project</span>
+  </header>
+
+  <main>
+    <!-- ============================================================
+         LEFT PANEL: Jovi chat (Dify embed)
+         ============================================================ -->
+    <section class="panel panel-chat">
+      <div class="panel-header">Chat with Jovi</div>
+      <div class="panel-body">
+        <iframe
+          id="jovi-chat-iframe"
+          allow="microphone">
+        </iframe>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         RIGHT PANEL: Trip simulation (Leaflet map)
+         ============================================================ -->
+    <section class="panel panel-sim">
+      <div class="panel-header">Trip Simulation</div>
+      <div class="panel-body" id="sim-panel-body">
+        <div id="map"></div>
+        <div class="sim-empty-state" id="sim-empty-state">
+          <div class="sim-empty-icon">🗺️</div>
+          <div class="sim-empty-title">No simulation yet</div>
+          <div class="sim-empty-text">Finish planning your itinerary in the chat first - the route simulation map will show up here.</div>
+        </div>
+        <span class="sim-status waiting" id="sim-status-badge">Waiting for itinerary</span>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script>
+    // =========================================================
+    // CONFIG — adjust to your environment
+    // =========================================================
+    // Derived from whatever host the page was actually loaded through, so the
+    // same file works whether opened via "localhost" (on this Mac) or via the
+    // LAN IP (e.g. from a phone on the same network) - no hardcoded address.
+    const CURRENT_HOST = window.location.hostname;
+    const BACKEND_URL = `http://${CURRENT_HOST}:8000`; // change this when deploying to production
+    const DIFY_CHATBOT_ID = "TvIILpkECeqM94Nz";
+    document.getElementById("jovi-chat-iframe").src = `http://${CURRENT_HOST}/chatbot/${DIFY_CHATBOT_ID}`;
+
+    const POLL_INTERVAL_MS = 3000;
+    const LATEST_SIM_POLL_INTERVAL_MS = 4000; // how often to check for a new simulation_id from the backend
+
+    // --- Leaflet map (OpenStreetMap tiles) ---
+    const map = L.map("map").setView([-2.5, 118], 5); // default: Indonesia view, fits to the route once data arrives
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 19,
+    }).addTo(map);
+
+    const routeLayer = L.layerGroup().addTo(map);
+    const waypointLayer = L.layerGroup().addTo(map);
+    // Jovi's avatar moving along the route (instead of a generic car icon) - more
+    // personal, fits the "Jovi" branding as a virtual travel companion.
+    const carIcon = L.icon({
+      iconUrl: "web_icons/map_marker/marker_96.png",
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+      className: "sim-vehicle-icon",
+    });
+    let vehicleMarker = null;
+    let animationTimer = null;
+
+    // Distinct color per day - used for waypoint markers & route lines so it's
+    // easy to see "which day goes to which location" straight from the map.
+    const DAY_COLORS = ["#ff8a3d", "#4dabf7", "#82c91e", "#f06595", "#845ef7", "#20c997", "#fcc419"];
+    function colorForDay(day) {
+      return DAY_COLORS[(day - 1) % DAY_COLORS.length];
+    }
+
+    function numberedIcon(n, color) {
+      return L.divIcon({
+        html: `<div style="background:${color};color:#0f1410;width:26px;height:26px;border-radius:50%;
+                display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;
+                border:2px solid #171d18;">${n}</div>`,
+        className: "",
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      });
+    }
+
+    async function checkSimulation(simulationId) {
+      const statusBadge = document.getElementById("sim-status-badge");
+
+      try {
+        const res = await fetch(`${BACKEND_URL}/simulate/${simulationId}`);
+        if (!res.ok) throw new Error("Simulation ID not found");
+        const data = await res.json();
+
+        if (data.status === "processing") {
+          statusBadge.textContent = "Building your route...";
+          statusBadge.className = "sim-status processing";
+          setTimeout(() => checkSimulation(simulationId), POLL_INTERVAL_MS);
+        } else if (data.status === "done") {
+          statusBadge.textContent = "Route ready!";
+          statusBadge.className = "sim-status done";
+          renderSimulationResult(data);
+        } else if (data.status === "error") {
+          statusBadge.textContent = "Failed: " + (data.error || "unknown");
+          statusBadge.className = "sim-status error";
+        }
+      } catch (err) {
+        statusBadge.textContent = "Failed to connect to backend";
+        statusBadge.className = "sim-status error";
+        console.error(err);
+      }
+    }
+
+    // data: { waypoints: [{day,name,lat,lng}], route_segments: [{day, points:[{lat,lng}]}], vehicle_trajectory: [{lat,lng,yaw,v}] }
+    function renderSimulationResult(data) {
+      document.getElementById("sim-empty-state").classList.add("hidden");
+
+      routeLayer.clearLayers();
+      waypointLayer.clearLayers();
+      if (animationTimer) { clearInterval(animationTimer); animationTimer = null; }
+      if (vehicleMarker) { map.removeLayer(vehicleMarker); vehicleMarker = null; }
+
+      const allRoutePoints = [];
+      (data.route_segments || []).forEach((seg) => {
+        const latlngs = seg.points.map((p) => [p.lat, p.lng]);
+        allRoutePoints.push(...latlngs);
+        L.polyline(latlngs, { color: colorForDay(seg.day), weight: 4, opacity: 0.9 }).addTo(routeLayer);
+      });
+
+      (data.waypoints || []).forEach((w, idx) => {
+        L.marker([w.lat, w.lng], { icon: numberedIcon(idx + 1, colorForDay(w.day)) })
+          .bindPopup(`<b>Day ${w.day}</b><br/>${w.name}`)
+          .addTo(waypointLayer);
+      });
+
+      const boundsSource = allRoutePoints.length ? allRoutePoints : (data.waypoints || []).map((w) => [w.lat, w.lng]);
+      if (boundsSource.length) map.fitBounds(L.latLngBounds(boundsSource), { padding: [30, 30] });
+
+      animateVehicle(data.vehicle_trajectory || []);
+    }
+
+    function animateVehicle(trajectory) {
+      if (!trajectory.length) return;
+      vehicleMarker = L.marker([trajectory[0].lat, trajectory[0].lng], { icon: carIcon }).addTo(map);
+
+      let i = 0;
+      animationTimer = setInterval(() => {
+        if (i >= trajectory.length) {
+          clearInterval(animationTimer);
+          animationTimer = null;
+          return;
+        }
+        vehicleMarker.setLatLng([trajectory[i].lat, trajectory[i].lng]);
+        i++;
+      }, 80);
+    }
+
+    // Exposed on the global scope so it can also be triggered manually for
+    // debugging, e.g. from the console: checkSimulation("abc-123")
+    window.checkSimulation = checkSimulation;
+
+    // =========================================================
+    // Auto-detect the latest simulation_id from the backend (polling)
+    //
+    // Once Jovi (Dify chatflow) POSTs to /webhook/itinerary, the backend
+    // records it as "latest_simulation_id". This frontend polls that endpoint
+    // every few seconds - if the ID is new (never triggered before), it calls
+    // checkSimulation() automatically. No more manual copy-pasting the ID
+    // into the browser console.
+    //
+    // Note: "latest_simulation_id" lives in the BACKEND's (server) memory, not
+    // in the browser - so it survives a tab refresh. To make sure a page
+    // refresh always starts from an empty map (instead of auto-showing an old
+    // simulation), we first fetch whichever ID is currently active on load as
+    // a "baseline" - treat it as already seen, then only start polling for a
+    // genuinely NEW id after that.
+    // =========================================================
+    let lastTriggeredSimulationId = null;
+
+    async function pollLatestSimulation() {
+      try {
+        const res = await fetch(`${BACKEND_URL}/latest_simulation`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.simulation_id && data.simulation_id !== lastTriggeredSimulationId) {
+            lastTriggeredSimulationId = data.simulation_id;
+            checkSimulation(data.simulation_id);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to poll latest simulation_id:", err);
+      }
+      setTimeout(pollLatestSimulation, LATEST_SIM_POLL_INTERVAL_MS);
+    }
+
+    async function initSimulationPolling() {
+      try {
+        const res = await fetch(`${BACKEND_URL}/latest_simulation`);
+        if (res.ok) {
+          const data = await res.json();
+          lastTriggeredSimulationId = data.simulation_id || null; // baseline, don't auto-render it
+        }
+      } catch (err) {
+        console.error("Failed to fetch baseline simulation_id:", err);
+      }
+      setTimeout(pollLatestSimulation, LATEST_SIM_POLL_INTERVAL_MS);
+    }
+    initSimulationPolling();
+  </script>
+
+</body>
+</html>
