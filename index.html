@@ -29,8 +29,10 @@
     color: var(--text);
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
     height: 100vh;
+    height: 100dvh; /* accounts for mobile browser chrome (address bar) resizing the viewport */
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   header {
@@ -39,6 +41,39 @@
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  /* --- Mobile tab switcher: hidden on desktop, shown below the header on narrow screens --- */
+  .mobile-tabs {
+    display: none;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-tabs .tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 13px 0;
+    min-height: 44px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+
+  .mobile-tabs .tab-btn.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+
+  .mobile-tabs .tab-btn:focus-visible {
+    outline: 2px solid var(--accent-soft);
+    outline-offset: -2px;
   }
 
   header .logo {
@@ -233,6 +268,49 @@
     60% { transform: scale(1.35); }
     100% { transform: scale(1); }
   }
+
+  /* =========================================================
+     RESPONSIVE: phones & narrow tablets
+     Chat and map switch from side-by-side to one-at-a-time tabs,
+     since squeezing both into half a phone screen makes both
+     unusable.
+     ========================================================= */
+  @media (max-width: 760px) {
+    header {
+      padding: 12px 16px;
+      gap: 10px;
+    }
+
+    header h1 { font-size: 16px; }
+
+    header span.tag {
+      width: 100%;
+      margin-left: 0;
+      order: 3;
+    }
+
+    .mobile-tabs { display: flex; }
+
+    main { flex-direction: column; }
+
+    .panel { border-right: none !important; }
+
+    main[data-active="chat"] .panel-sim { display: none; }
+    main[data-active="sim"] .panel-chat { display: none; }
+
+    .panel-header { display: none; } /* redundant with the tab bar above */
+
+    .sim-empty-icon { font-size: 32px; }
+    .sim-empty-title { font-size: 14px; }
+    .sim-empty-text { font-size: 12.5px; max-width: 240px; }
+
+    .sim-status {
+      top: 10px;
+      left: 10px;
+      font-size: 12px;
+      padding: 6px 12px 6px 10px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -243,7 +321,12 @@
     <span class="tag">SIPIVT Final Project</span>
   </header>
 
-  <main>
+  <nav class="mobile-tabs">
+    <button type="button" class="tab-btn active" data-tab="chat">💬 Chat</button>
+    <button type="button" class="tab-btn" data-tab="sim">🗺️ Trip Simulation</button>
+  </nav>
+
+  <main data-active="chat">
     <!-- ============================================================
          LEFT PANEL: Jovi chat (Dify embed)
          ============================================================ -->
@@ -276,6 +359,24 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script>
+    // =========================================================
+    // Mobile tab switcher (Chat / Trip Simulation)
+    // Only visible below 760px (see CSS) - on wider screens both panels
+    // stay side-by-side as usual and this has no visible effect.
+    // =========================================================
+    const mainEl = document.querySelector("main");
+    document.querySelectorAll(".mobile-tabs .tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".mobile-tabs .tab-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        mainEl.dataset.active = btn.dataset.tab;
+        // The map panel may have been display:none until now (mobile tabs), and
+        // Leaflet sizes its tiles based on the container's size at init time -
+        // nudge it to recalculate now that it's actually visible.
+        if (btn.dataset.tab === "sim") map.invalidateSize();
+      });
+    });
+
     // =========================================================
     // CONFIG — adjust to your environment
     // =========================================================
